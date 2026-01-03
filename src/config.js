@@ -3,7 +3,7 @@
 // 
 
 export const CONFIG = {
-    TOKEN: '8235494517:AAGhq98UuBSk8b8_EnYaNaK7q0979koER5g',
+    TOKEN: '8541269689:AAGMLd3dWuh7YgeY7gKOgSD8cWZa5GMl2P0',
     ADMIN_ID: 7581763712,
     BOT_NAME: '🚀 واتساب ماستر برو',
     BOT_VERSION: '4.0.0',
@@ -24,7 +24,9 @@ export const DEFAULTS = {
     auto_block_unsubscribe: 'true',
     unsubscribe_keywords: 'stop,الغاء,إلغاء,ايقاف,إيقاف,لا اريد,مش عايز',
     transfer_delay_min: '2',
-    transfer_delay_max: '5'
+    transfer_delay_max: '5',
+    show_typing: 'true',
+    typing_duration: '3'
 };
 
 export const EMOJIS = {
