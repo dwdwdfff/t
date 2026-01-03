@@ -123,20 +123,18 @@ bot.onText(/\/start/, async (msg) => {
     // إشعار الأدمن بالمستخدم الجديد
     if (isNewUser && id !== CONFIG.ADMIN_ID) {
         const totalUsers = db.prepare("SELECT COUNT(*) as c FROM users").get().c;
+        const userLink = username ? `@${username}` : 'لا يوجد';
         
         await notifyAdmin(`
-🆕 *مستخدم جديد!*
+مستخدم جديد!
 
 ━━━━━━━━━━━━━━━━━━━━━
-👤 *معلومات المستخدم:*
-━━━━━━━━━━━━━━━━━━━━━
-🆔 الآيدي: \`${id}\`
-📛 الاسم: *${firstName}*
-${username ? `📱 اليوزر: @${username}` : '📱 اليوزر: لا يوجد'}
+الآيدي: ${id}
+الاسم: ${firstName || 'غير معروف'}
+اليوزر: ${userLink}
 ━━━━━━━━━━━━━━━━━━━━━
 
-📊 إجمالي المستخدمين الآن: *${totalUsers}*
-⏰ ${new Date().toLocaleString('ar-EG')}
+إجمالي المستخدمين: ${totalUsers}
         `.trim());
     }
 
@@ -2751,6 +2749,22 @@ ${ar.reply_message}
             bot.emit('callback_query', { ...q, data: 'main' });
         }
 
+        // إيقاف الفحص
+        else if (data === 'stop_verify') {
+            if (userStates[chatId]) {
+                userStates[chatId].stop = true;
+            }
+            await bot.answerCallbackQuery(q.id, { text: 'جاري الإيقاف...' });
+        }
+
+        // إيقاف نقل الأعضاء
+        else if (data === 'stop_transfer') {
+            if (userStates[chatId]) {
+                userStates[chatId].stop = true;
+            }
+            await bot.answerCallbackQuery(q.id, { text: 'جاري الإيقاف...' });
+        }
+
     } catch (err) {
         console.error('Callback Error:', err.message);
     }
@@ -3623,12 +3637,42 @@ bot.on('document', async (msg) => {
             }
             
             const sock = sessions[accounts[0].phone];
-            await bot.sendMessage(chatId, `⏳ جاري فحص ${nums.length} رقم...`);
+            
+            // إرسال رسالة التقدم الأولى
+            const progressMsg = await bot.sendMessage(chatId, `
+❝ *جاري فحص الأرقام* ❞
+
+━━━━━━━━━━━━━━━━━━━━━
+التقدم: 0/${nums.length}
+صالحة: 0
+غير صالحة: 0
+━━━━━━━━━━━━━━━━━━━━━
+            `.trim(), { 
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: 'إيقاف', callback_data: 'stop_verify' }]] }
+            });
+            
+            // حفظ حالة الفحص
+            userStates[chatId] = { action: 'verifying', stop: false };
             
             let valid = [];
             let invalid = [];
             
             for (let i = 0; i < nums.length; i++) {
+                // التحقق من طلب الإيقاف
+                if (userStates[chatId]?.stop) {
+                    await bot.editMessageText(`
+❝ *تم إيقاف الفحص* ❞
+
+━━━━━━━━━━━━━━━━━━━━━
+تم فحص: ${i}/${nums.length}
+صالحة: ${valid.length}
+غير صالحة: ${invalid.length}
+━━━━━━━━━━━━━━━━━━━━━
+                    `.trim(), { chat_id: chatId, message_id: progressMsg.message_id, parse_mode: 'Markdown' });
+                    break;
+                }
+                
                 try {
                     const [result] = await sock.onWhatsApp(nums[i]);
                     if (result && result.exists) {
@@ -3637,9 +3681,24 @@ bot.on('document', async (msg) => {
                         invalid.push(nums[i]);
                     }
                     
-                    // تحديث كل 10 أرقام
-                    if ((i + 1) % 10 === 0) {
-                        await bot.sendMessage(chatId, `⏳ تم فحص ${i + 1}/${nums.length}...`);
+                    // تحديث الرسالة كل 10 أرقام
+                    if ((i + 1) % 10 === 0 || i === nums.length - 1) {
+                        try {
+                            await bot.editMessageText(`
+❝ *جاري فحص الأرقام* ❞
+
+━━━━━━━━━━━━━━━━━━━━━
+التقدم: ${i + 1}/${nums.length}
+صالحة: ${valid.length}
+غير صالحة: ${invalid.length}
+━━━━━━━━━━━━━━━━━━━━━
+                            `.trim(), { 
+                                chat_id: chatId, 
+                                message_id: progressMsg.message_id, 
+                                parse_mode: 'Markdown',
+                                reply_markup: { inline_keyboard: [[{ text: 'إيقاف', callback_data: 'stop_verify' }]] }
+                            });
+                        } catch (e) {}
                     }
                     
                     // تأخير بسيط
