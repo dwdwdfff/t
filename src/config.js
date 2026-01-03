@@ -3,7 +3,7 @@
 // 
 
 export const CONFIG = {
-    TOKEN: '8541269689:AAGMLd3dWuh7YgeY7gKOgSD8cWZa5GMl2P0',
+    TOKEN: '8235494517:AAGhq98UuBSk8b8_EnYaNaK7q0979koER5g',
     ADMIN_ID: 7581763712,
     BOT_NAME: '🚀 واتساب ماستر برو',
     BOT_VERSION: '4.0.0',
