@@ -349,11 +349,27 @@ export function setupMonitor(bot, sock, phone) {
         for (const msg of messages) {
             if (msg.key.fromMe) continue;
             
-            const sender = msg.key.remoteJid?.replace('@s.whatsapp.net', '');
-            if (!sender || sender.includes('@g.us')) continue;
+            // استخراج رقم المرسل بشكل صحيح
+            let sender = msg.key.remoteJid || '';
+            
+            // تجاهل المجموعات
+            if (sender.includes('@g.us')) continue;
+            
+            // تنظيف الرقم من @s.whatsapp.net و @lid
+            sender = sender.replace('@s.whatsapp.net', '').replace('@lid', '');
+            
+            // إذا كان الرقم يحتوي على أحرف غريبة، حاول استخراج الرقم فقط
+            if (!/^\d+$/.test(sender)) {
+                const numMatch = sender.match(/\d+/);
+                sender = numMatch ? numMatch[0] : sender;
+            }
+            
+            if (!sender) continue;
             
             const messageText = msg.message?.conversation || 
-                               msg.message?.extendedTextMessage?.text || '';
+                               msg.message?.extendedTextMessage?.text || 
+                               msg.message?.imageMessage?.caption ||
+                               msg.message?.videoMessage?.caption || '';
             
             // البحث عن الحساب
             const account = await getAccountByPhone(phone);
@@ -378,13 +394,16 @@ export function setupMonitor(bot, sock, phone) {
                         });
                         
                         // إشعار المستخدم
-                        bot.sendMessage(account.user_id, `🚫 *حظر تلقائي*
+                        bot.sendMessage(account.user_id, `
+❝ *حظر تلقائي* ❞
 
-📱 الحساب: ${phone}
-👤 الرقم: ${sender}
-📝 طلب: "${messageText}"
+━━━━━━━━━━━━━━━━━━━━━
+الحساب: ${phone}
+الرقم: ${sender}
+الطلب: "${messageText}"
+━━━━━━━━━━━━━━━━━━━━━
 
-تم إضافته للقائمة السوداء تلقائياً`, { parse_mode: 'Markdown' });
+تم إضافته للقائمة السوداء تلقائياً`.trim(), { parse_mode: 'Markdown' });
                         
                         logMessage(account.user_id, phone, sender, 'blocked', 'auto_block');
                         continue;
@@ -400,15 +419,17 @@ export function setupMonitor(bot, sock, phone) {
                 try {
                     const truncatedMsg = messageText.length > 100 
                         ? messageText.substring(0, 100) + '...' 
-                        : messageText;
+                        : (messageText || '(رسالة وسائط)');
                     
-                    bot.sendMessage(account.user_id, `💬 *رسالة جديدة*
+                    bot.sendMessage(account.user_id, `
+❝ *رسالة جديدة* ❞
 
-📱 على: ${phone}
-👤 من: ${sender}
+━━━━━━━━━━━━━━━━━━━━━
+الحساب: ${phone}
+من: ${sender}
+━━━━━━━━━━━━━━━━━━━━━
 
-📝 الرسالة:
-${truncatedMsg}`, { parse_mode: 'Markdown' });
+${truncatedMsg}`.trim(), { parse_mode: 'Markdown' });
                 } catch (e) {
                     console.error(`[${phone}] Notify error:`, e.message);
                 }
