@@ -351,17 +351,45 @@ export function setupMonitor(bot, sock, phone) {
             
             // استخراج رقم المرسل بشكل صحيح
             let sender = msg.key.remoteJid || '';
+            let displayNumber = '';
             
             // تجاهل المجموعات
             if (sender.includes('@g.us')) continue;
             
-            // تنظيف الرقم من @s.whatsapp.net و @lid
-            sender = sender.replace('@s.whatsapp.net', '').replace('@lid', '');
+            // محاولة الحصول على الرقم الحقيقي
+            if (sender.includes('@lid')) {
+                // إذا كان LID، حاول الحصول على الرقم من participant أو pushName
+                try {
+                    // محاولة الحصول على معلومات جهة الاتصال
+                    const contact = await sock.onWhatsApp(sender.replace('@lid', '') + '@s.whatsapp.net').catch(() => null);
+                    if (contact && contact[0]?.jid) {
+                        displayNumber = contact[0].jid.replace('@s.whatsapp.net', '');
+                    }
+                } catch (e) {}
+                
+                // إذا لم نجد الرقم، استخدم الـ participant إن وجد
+                if (!displayNumber && msg.key.participant) {
+                    displayNumber = msg.key.participant.replace('@s.whatsapp.net', '').replace('@lid', '');
+                }
+                
+                // إذا لم نجد، استخدم pushName أو الرقم كما هو
+                if (!displayNumber) {
+                    displayNumber = msg.pushName || sender.replace('@lid', '');
+                }
+                
+                sender = sender.replace('@lid', '');
+            } else {
+                // تنظيف الرقم من @s.whatsapp.net
+                sender = sender.replace('@s.whatsapp.net', '');
+                displayNumber = sender;
+            }
             
             // إذا كان الرقم يحتوي على أحرف غريبة، حاول استخراج الرقم فقط
-            if (!/^\d+$/.test(sender)) {
-                const numMatch = sender.match(/\d+/);
-                sender = numMatch ? numMatch[0] : sender;
+            if (!/^\d+$/.test(displayNumber)) {
+                const numMatch = displayNumber.match(/\d+/);
+                if (numMatch && numMatch[0].length >= 10) {
+                    displayNumber = numMatch[0];
+                }
             }
             
             if (!sender) continue;
@@ -375,6 +403,9 @@ export function setupMonitor(bot, sock, phone) {
             const account = await getAccountByPhone(phone);
             if (!account) continue;
             
+            // الحصول على اسم المرسل
+            const senderName = msg.pushName || 'غير معروف';
+            
             // التحقق من طلب إلغاء الاشتراك (الحظر التلقائي)
             const autoBlock = getSetting('auto_block_unsubscribe');
             if (autoBlock === 'true') {
@@ -386,7 +417,7 @@ export function setupMonitor(bot, sock, phone) {
                     try {
                         // إضافة للقائمة السوداء
                         const { addToBlacklist } = await import('../database/init.js');
-                        addToBlacklist(account.user_id, sender);
+                        addToBlacklist(account.user_id, displayNumber || sender);
                         
                         // إرسال رسالة تأكيد
                         await sock.sendMessage(msg.key.remoteJid, { 
@@ -395,17 +426,18 @@ export function setupMonitor(bot, sock, phone) {
                         
                         // إشعار المستخدم
                         bot.sendMessage(account.user_id, `
-❝ *حظر تلقائي* ❞
+حظر تلقائي
 
 ━━━━━━━━━━━━━━━━━━━━━
 الحساب: ${phone}
-الرقم: ${sender}
+الاسم: ${senderName}
+الرقم: ${displayNumber || sender}
 الطلب: "${messageText}"
 ━━━━━━━━━━━━━━━━━━━━━
 
-تم إضافته للقائمة السوداء تلقائياً`.trim(), { parse_mode: 'Markdown' });
+تم إضافته للقائمة السوداء تلقائياً`.trim());
                         
-                        logMessage(account.user_id, phone, sender, 'blocked', 'auto_block');
+                        logMessage(account.user_id, phone, displayNumber || sender, 'blocked', 'auto_block');
                         continue;
                     } catch (e) {
                         console.error(`[${phone}] Auto-block error:`, e.message);
@@ -421,15 +453,34 @@ export function setupMonitor(bot, sock, phone) {
                         ? messageText.substring(0, 100) + '...' 
                         : (messageText || '(رسالة وسائط)');
                     
+                    // رابط فتح المحادثة - استخدم الرقم الحقيقي إن وجد
+                    const phoneForLink = /^\d{10,}$/.test(displayNumber) ? displayNumber : '';
+                    const chatLink = phoneForLink ? `https://wa.me/${phoneForLink}` : null;
+                    
+                    // بناء الأزرار
+                    const buttons = [];
+                    if (chatLink) {
+                        buttons.push([
+                            { text: 'فتح المحادثة', url: chatLink },
+                            { text: 'حظر الرقم', callback_data: `block_${displayNumber || sender}` }
+                        ]);
+                    } else {
+                        buttons.push([{ text: 'حظر الرقم', callback_data: `block_${displayNumber || sender}` }]);
+                    }
+                    buttons.push([{ text: 'إيقاف الإشعارات', callback_data: 'stop_notify_reply' }]);
+                    
                     bot.sendMessage(account.user_id, `
-❝ *رسالة جديدة* ❞
+رسالة جديدة
 
 ━━━━━━━━━━━━━━━━━━━━━
 الحساب: ${phone}
-من: ${sender}
+الاسم: ${senderName}
+الرقم: ${displayNumber || 'غير متاح'}
 ━━━━━━━━━━━━━━━━━━━━━
 
-${truncatedMsg}`.trim(), { parse_mode: 'Markdown' });
+${truncatedMsg}`.trim(), { 
+                        reply_markup: { inline_keyboard: buttons }
+                    });
                 } catch (e) {
                     console.error(`[${phone}] Notify error:`, e.message);
                 }
@@ -471,18 +522,37 @@ async function getAccountByPhone(phone) {
 // 📤 إرسال الرسائل
 
 
+// دالة مساعدة لإظهار "جاري الكتابة..."
+async function showTypingIfEnabled(sock, jid) {
+    const showTyping = getSetting('show_typing') === 'true';
+    if (showTyping) {
+        const duration = parseInt(getSetting('typing_duration') || '3') * 1000;
+        try {
+            await sock.sendPresenceUpdate('composing', jid);
+            await sleep(duration);
+            await sock.sendPresenceUpdate('paused', jid);
+        } catch (e) {
+            // تجاهل أخطاء الـ presence
+        }
+    }
+}
+
 export async function sendTextMessage(phone, recipient, text) {
     const sock = sessions[phone];
     if (!sock) throw new Error('الحساب غير متصل');
     
-    await sock.sendMessage(`${recipient}@s.whatsapp.net`, { text });
+    const jid = `${recipient}@s.whatsapp.net`;
+    await showTypingIfEnabled(sock, jid);
+    await sock.sendMessage(jid, { text });
 }
 
 export async function sendImageMessage(phone, recipient, imageBuffer, caption = '') {
     const sock = sessions[phone];
     if (!sock) throw new Error('الحساب غير متصل');
     
-    await sock.sendMessage(`${recipient}@s.whatsapp.net`, {
+    const jid = `${recipient}@s.whatsapp.net`;
+    await showTypingIfEnabled(sock, jid);
+    await sock.sendMessage(jid, {
         image: imageBuffer,
         caption
     });
@@ -492,7 +562,9 @@ export async function sendVideoMessage(phone, recipient, videoBuffer, caption = 
     const sock = sessions[phone];
     if (!sock) throw new Error('الحساب غير متصل');
     
-    await sock.sendMessage(`${recipient}@s.whatsapp.net`, {
+    const jid = `${recipient}@s.whatsapp.net`;
+    await showTypingIfEnabled(sock, jid);
+    await sock.sendMessage(jid, {
         video: videoBuffer,
         caption
     });
@@ -502,7 +574,9 @@ export async function sendDocumentMessage(phone, recipient, documentBuffer, file
     const sock = sessions[phone];
     if (!sock) throw new Error('الحساب غير متصل');
     
-    await sock.sendMessage(`${recipient}@s.whatsapp.net`, {
+    const jid = `${recipient}@s.whatsapp.net`;
+    await showTypingIfEnabled(sock, jid);
+    await sock.sendMessage(jid, {
         document: documentBuffer,
         fileName: filename,
         caption
