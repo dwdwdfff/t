@@ -2772,6 +2772,35 @@ ${ar.reply_message}
             await bot.answerCallbackQuery(q.id, { text: 'جاري الإيقاف...' });
         }
 
+        // حظر رقم من الإشعار
+        else if (data.startsWith('block_')) {
+            const numberToBlock = data.replace('block_', '');
+            addToBlacklist(userId, numberToBlock);
+            await bot.answerCallbackQuery(q.id, { text: `تم حظر ${numberToBlock}` });
+            await bot.editMessageText(`
+❝ تم الحظر ❞
+
+━━━━━━━━━━━━━━━━━━━━━
+تم إضافة ${numberToBlock} للقائمة السوداء
+لن تستلم رسائل منه مجدداً
+━━━━━━━━━━━━━━━━━━━━━
+            `.trim(), { chat_id: chatId, message_id: msgId });
+        }
+
+        // إيقاف إشعارات الردود
+        else if (data === 'stop_notify_reply') {
+            setSetting('notify_reply', 'false');
+            await bot.answerCallbackQuery(q.id, { text: 'تم إيقاف الإشعارات' });
+            await bot.editMessageText(`
+❝ تم إيقاف الإشعارات ❞
+
+━━━━━━━━━━━━━━━━━━━━━
+لن تستلم إشعارات بالرسائل الجديدة
+يمكنك تفعيلها من الإعدادات
+━━━━━━━━━━━━━━━━━━━━━
+            `.trim(), { chat_id: chatId, message_id: msgId });
+        }
+
     } catch (err) {
         console.error('Callback Error:', err.message);
     }
