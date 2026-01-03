@@ -1,0 +1,27 @@
+{
+  "name": "whatsapp-master-pro",
+  "version": "4.0.0",
+  "description": "بوت تليجرام متقدم لإدارة حسابات واتساب وإرسال الرسائل الجماعية",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "telegram",
+    "whatsapp",
+    "bot",
+    "bulk-messaging"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "better-sqlite3": "^11.7.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "xlsx": "^0.18.5"
+  }
+}
