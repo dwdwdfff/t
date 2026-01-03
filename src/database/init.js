@@ -173,6 +173,18 @@ export function initDatabase() {
             verified_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(user_id, phone)
         );
+
+        -- جدول ردود الحملات (من رد على الحملة)
+        CREATE TABLE IF NOT EXISTS campaign_replies (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            campaign_id INTEGER,
+            phone TEXT,
+            sender_name TEXT,
+            message TEXT,
+            replied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(campaign_id, phone)
+        );
     `);
 
     // إضافة الإعدادات الافتراضية
@@ -487,4 +499,47 @@ export const getVerifiedNumbers = (userId) => db.prepare("SELECT * FROM verified
 
 export const isNumberVerified = (userId, phone) => {
     return db.prepare("SELECT * FROM verified_numbers WHERE user_id = ? AND phone = ?").get(userId, phone);
+};
+
+
+// 📢 دوال ردود الحملات
+
+
+export const saveCampaignReply = (userId, campaignId, phone, senderName, message) => {
+    try {
+        db.prepare(`
+            INSERT OR REPLACE INTO campaign_replies (user_id, campaign_id, phone, sender_name, message, replied_at) 
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `).run(userId, campaignId, phone, senderName, message);
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
+
+export const getCampaignReplies = (campaignId) => {
+    return db.prepare("SELECT * FROM campaign_replies WHERE campaign_id = ? ORDER BY replied_at DESC").all(campaignId);
+};
+
+export const getCampaignRepliesCount = (campaignId) => {
+    return db.prepare("SELECT COUNT(*) as count FROM campaign_replies WHERE campaign_id = ?").get(campaignId)?.count || 0;
+};
+
+export const getAllUserReplies = (userId) => {
+    return db.prepare(`
+        SELECT cr.*, c.name as campaign_name 
+        FROM campaign_replies cr 
+        JOIN campaigns c ON cr.campaign_id = c.id 
+        WHERE cr.user_id = ? 
+        ORDER BY cr.replied_at DESC
+    `).all(userId);
+};
+
+export const exportCampaignReplies = (campaignId) => {
+    return db.prepare(`
+        SELECT phone, sender_name, message, replied_at 
+        FROM campaign_replies 
+        WHERE campaign_id = ? 
+        ORDER BY replied_at DESC
+    `).all(campaignId);
 };
