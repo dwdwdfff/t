@@ -17,7 +17,8 @@ import {
     getCampaigns, getCampaign, createCampaign, deleteCampaign,
     getAutoReplies, getAutoReply, createAutoReply, toggleAutoReply, deleteAutoReply,
     getContactLists, getContactList, createContactList, deleteContactList,
-    saveVerifiedNumber, logMessage
+    saveVerifiedNumber, logMessage,
+    saveCampaignReply, getCampaignReplies, getCampaignRepliesCount, getAllUserReplies, exportCampaignReplies
 } from './database/init.js';
 
 import { 
@@ -239,14 +240,16 @@ bot.on('callback_query', async (q) => {
             } else if (subscribed) {
                 const user = getUser(userId);
                 const accounts = getUserAccounts(userId);
+                const onlineCount = accounts.filter(a => sessions[a.phone]).length;
+                const remaining = getTimeRemaining(user.subscription_end);
                 await bot.editMessageText(`
 ❝ *مرحباً بك ${firstName}!* ❞
 
 ━━━━━━━━━━━━━━━━━━━━━
 📊 *معلومات حسابك:*
 ━━━━━━━━━━━━━━━━━━━━━
-💎 الباقة ← *${user.subscription_type}*
-📱 الحسابات ← *${onlineAccounts}🟢 / ${accounts.length} متصل*
+💎 الباقة ← *${user.subscription_type || 'أساسي'}*
+📱 الحسابات ← *${onlineCount}🟢 / ${accounts.length}*
 📅 ينتهي في ← *${formatDateShort(user.subscription_end)}*
 ⏳ المتبقي ← *${remaining}*
 ━━━━━━━━━━━━━━━━━━━━━
@@ -677,12 +680,14 @@ ${method.name}
             });
         }
 
-        else if (data.startsWith('camp_') && !data.includes('start') && !data.includes('pause') && !data.includes('resume') && !data.includes('del') && !data.includes('report')) {
+        else if (data.startsWith('camp_') && !data.includes('start') && !data.includes('pause') && !data.includes('resume') && !data.includes('del') && !data.includes('report') && !data.includes('replies') && !data.includes('export')) {
             const campId = parseInt(data.split('_')[1]);
             const camp = getCampaign(campId);
             if (!camp) return;
             
             const report = getCampaignReport(campId);
+            const repliesCount = getCampaignRepliesCount(campId);
+            
             await bot.editMessageText(`
 📢 *${camp.name}*
 
@@ -691,11 +696,97 @@ ${method.name}
 ✅ نجح: ${report.sent}
 ❌ فشل: ${report.failed}
 📊 النسبة: ${report.successRate}%
+💬 الردود: ${repliesCount}
 🔄 الـ Rotation: ${report.rotationMode}
             `.trim(), {
                 chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
-                ...KB.campaignActionsKeyboard(campId, camp.status)
+                reply_markup: { inline_keyboard: [
+                    ...(camp.status === 'draft' ? [[{ text: 'بدء', callback_data: `camp_start_${campId}` }]] : []),
+                    ...(camp.status === 'running' ? [[{ text: 'إيقاف مؤقت', callback_data: `camp_pause_${campId}` }]] : []),
+                    ...(camp.status === 'paused' ? [[{ text: 'استئناف', callback_data: `camp_resume_${campId}` }]] : []),
+                    [
+                        { text: `الردود (${repliesCount})`, callback_data: `camp_replies_${campId}` },
+                        { text: 'تصدير', callback_data: `camp_export_${campId}` }
+                    ],
+                    [
+                        { text: 'حذف', callback_data: `camp_del_${campId}` },
+                        { text: 'رجوع', callback_data: 'my_campaigns' }
+                    ]
+                ]}
             });
+        }
+
+        // عرض ردود الحملة
+        else if (data.startsWith('camp_replies_')) {
+            const campId = parseInt(data.split('_')[2]);
+            const camp = getCampaign(campId);
+            if (!camp) return;
+            
+            const replies = getCampaignReplies(campId);
+            
+            if (replies.length === 0) {
+                await bot.editMessageText(`
+📢 *${camp.name}*
+
+💬 لا توجد ردود حتى الآن
+                `.trim(), {
+                    chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+                    reply_markup: { inline_keyboard: [[{ text: 'رجوع', callback_data: `camp_${campId}` }]] }
+                });
+                return;
+            }
+            
+            let text = `📢 *${camp.name}*\n\n💬 *الردود (${replies.length}):*\n\n`;
+            replies.slice(0, 10).forEach((r, i) => {
+                text += `${i + 1}. ${r.sender_name || 'غير معروف'}\n`;
+                text += `   📱 ${r.phone}\n`;
+                text += `   💬 ${r.message?.substring(0, 50) || ''}${r.message?.length > 50 ? '...' : ''}\n\n`;
+            });
+            
+            if (replies.length > 10) {
+                text += `\n... و ${replies.length - 10} ردود أخرى`;
+            }
+            
+            await bot.editMessageText(text.trim(), {
+                chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: 'تصدير Excel', callback_data: `camp_export_${campId}` }],
+                    [{ text: 'رجوع', callback_data: `camp_${campId}` }]
+                ]}
+            });
+        }
+
+        // تصدير ردود الحملة
+        else if (data.startsWith('camp_export_')) {
+            const campId = parseInt(data.split('_')[2]);
+            const camp = getCampaign(campId);
+            if (!camp) return;
+            
+            const replies = exportCampaignReplies(campId);
+            
+            if (replies.length === 0) {
+                await bot.answerCallbackQuery(q.id, { text: 'لا توجد ردود للتصدير' });
+                return;
+            }
+            
+            // إنشاء ملف Excel
+            const wb = xlsx.utils.book_new();
+            const ws = xlsx.utils.json_to_sheet(replies.map(r => ({
+                'الرقم': r.phone,
+                'الاسم': r.sender_name || '',
+                'الرسالة': r.message || '',
+                'التاريخ': r.replied_at
+            })));
+            xlsx.utils.book_append_sheet(wb, ws, 'الردود');
+            
+            const filePath = `/tmp/campaign_replies_${campId}_${Date.now()}.xlsx`;
+            xlsx.writeFile(wb, filePath);
+            
+            await bot.sendDocument(chatId, filePath, {
+                caption: `📢 ردود حملة: ${camp.name}\n📊 عدد الردود: ${replies.length}`
+            });
+            
+            fs.unlinkSync(filePath);
         }
 
         else if (data.startsWith('camp_start_')) {
@@ -1253,9 +1344,11 @@ ${ar.reply_message}
             const notifyDisconnect = getSetting('notify_disconnect') === 'true';
             const autoReconnect = getSetting('auto_reconnect') === 'true';
             const autoBlock = getSetting('auto_block_unsubscribe') === 'true';
+            const showTyping = getSetting('show_typing') === 'true';
             const delayMin = getSetting('delay_min') || '3';
             const delayMax = getSetting('delay_max') || '7';
             const batchSize = getSetting('batch_size') || '10';
+            const typingDuration = getSetting('typing_duration') || '3';
             
             await bot.editMessageText(`
 ❝ *الإعدادات العامة* ❞
@@ -1265,6 +1358,7 @@ ${ar.reply_message}
 ━━━━━━━━━━━━━━━━━━━━━
 ⏱️ التأخير: *${delayMin}-${delayMax}* ثانية
 📦 حجم الدفعة: *${batchSize}* رسالة
+⌨️ جاري الكتابة: ${showTyping ? `✅ (${typingDuration}ث)` : '❌'}
 
 ━━━━━━━━━━━━━━━━━━━━━
 🔔 *الإشعارات:*
@@ -1278,10 +1372,24 @@ ${ar.reply_message}
 💡 اضغط على أي إعداد لتغييره
             `.trim(), { 
                 chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', 
-                ...KB.settingsMenuKeyboard({
-                    delayMin, delayMax, batchSize,
-                    autoReconnect, notifyDisconnect, notifyReply, autoBlock
-                })
+                reply_markup: { inline_keyboard: [
+                    [
+                        { text: `التأخير: ${delayMin}-${delayMax}ث`, callback_data: 'set_delay' },
+                        { text: `الدفعة: ${batchSize}`, callback_data: 'set_batch' }
+                    ],
+                    [
+                        { text: `الكتابة: ${showTyping ? 'مفعل' : 'معطل'}`, callback_data: 'set_typing' }
+                    ],
+                    [
+                        { text: `إعادة الاتصال: ${autoReconnect ? 'مفعل' : 'معطل'}`, callback_data: 'set_reconnect' },
+                        { text: `إشعار الانقطاع: ${notifyDisconnect ? 'مفعل' : 'معطل'}`, callback_data: 'set_notify_disconnect' }
+                    ],
+                    [
+                        { text: `إشعار الردود: ${notifyReply ? 'مفعل' : 'معطل'}`, callback_data: 'set_notify_reply' },
+                        { text: `الحظر التلقائي: ${autoBlock ? 'مفعل' : 'معطل'}`, callback_data: 'set_auto_block' }
+                    ],
+                    [{ text: 'رجوع', callback_data: 'main' }]
+                ]}
             });
         }
 
@@ -1382,6 +1490,49 @@ ${ar.reply_message}
             const current = getSetting('auto_reconnect') === 'true';
             setSetting('auto_reconnect', current ? 'false' : 'true');
             await bot.editMessageText(`✅ إعادة الاتصال التلقائي: ${!current ? 'مفعل' : 'معطل'}`, {
+                chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
+            });
+        }
+
+        // إعدادات جاري الكتابة (Typing)
+        else if (data === 'set_typing') {
+            const current = getSetting('show_typing') === 'true';
+            const duration = getSetting('typing_duration') || '3';
+            
+            await bot.editMessageText(`
+⌨️ *إظهار "جاري الكتابة..."*
+
+الحالة: ${current ? '✅ مفعل' : '❌ معطل'}
+المدة: ${duration} ثانية
+
+عند التفعيل، سيظهر للمستلم أنك تكتب قبل إرسال الرسالة.
+            `.trim(), {
+                chat_id: chatId, message_id: msgId, parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [
+                    [{ text: current ? '❌ تعطيل' : '✅ تفعيل', callback_data: 'toggle_typing' }],
+                    [
+                        { text: '2 ث', callback_data: 'typing_2' },
+                        { text: '3 ث', callback_data: 'typing_3' },
+                        { text: '5 ث', callback_data: 'typing_5' }
+                    ],
+                    [{ text: 'رجوع', callback_data: 'settings' }]
+                ]}
+            });
+        }
+
+        else if (data === 'toggle_typing') {
+            const current = getSetting('show_typing') === 'true';
+            setSetting('show_typing', current ? 'false' : 'true');
+            await bot.editMessageText(`✅ جاري الكتابة: ${!current ? 'مفعل' : 'معطل'}`, {
+                chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
+            });
+        }
+
+        else if (data.startsWith('typing_')) {
+            const duration = data.replace('typing_', '');
+            setSetting('typing_duration', duration);
+            setSetting('show_typing', 'true');
+            await bot.editMessageText(`✅ تم ضبط مدة الكتابة: ${duration} ثانية`, {
                 chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
             });
         }
