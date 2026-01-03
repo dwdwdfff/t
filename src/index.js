@@ -1282,35 +1282,79 @@ ${ar.reply_message}
 
         else if (data === 'set_delay') {
             await bot.editMessageText(`
-⏱️ *التأخير بين الرسائل*
+❝ *التأخير بين الرسائل* ❞
 
-الحالي: ${getSetting('delay_min')}-${getSetting('delay_max')} ثانية
-            `.trim(), { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', ...KB.delaySettingsKeyboard });
+━━━━━━━━━━━━━━━━━━━━━
+الحالي: *${getSetting('delay_min') || '3'}-${getSetting('delay_max') || '7'}* ثانية
+━━━━━━━━━━━━━━━━━━━━━
+
+اختر مدة التأخير:
+            `.trim(), { 
+                chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', 
+                reply_markup: { inline_keyboard: [
+                    [
+                        { text: '1-3 ث', callback_data: 'd_1_3' },
+                        { text: '3-5 ث', callback_data: 'd_3_5' },
+                        { text: '5-10 ث', callback_data: 'd_5_10' }
+                    ],
+                    [
+                        { text: '10-15 ث', callback_data: 'd_10_15' },
+                        { text: '15-30 ث', callback_data: 'd_15_30' },
+                        { text: '30-60 ث', callback_data: 'd_30_60' }
+                    ],
+                    [{ text: 'رجوع', callback_data: 'settings' }]
+                ]}
+            });
         }
 
-        else if (data.startsWith('d_')) {
-            const [_, min, max] = data.split('_');
-            setSetting('delay_min', min);
-            setSetting('delay_max', max);
-            await bot.editMessageText(`✅ تم تعيين التأخير: ${min}-${max} ثانية`, {
-                chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
-            });
+        else if (data.startsWith('d_') && !data.startsWith('del_')) {
+            const parts = data.split('_');
+            if (parts.length === 3) {
+                const min = parts[1];
+                const max = parts[2];
+                setSetting('delay_min', min);
+                setSetting('delay_max', max);
+                await bot.editMessageText(`✅ تم تعيين التأخير: ${min}-${max} ثانية`, {
+                    chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
+                });
+            }
         }
 
         else if (data === 'set_batch') {
             await bot.editMessageText(`
-📦 *حجم الدفعة*
+❝ *حجم الدفعة* ❞
 
-الحالي: ${getSetting('batch_size')} رسالة
-            `.trim(), { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', ...KB.batchSettingsKeyboard });
+━━━━━━━━━━━━━━━━━━━━━
+الحالي: *${getSetting('batch_size') || '10'}* رسالة
+━━━━━━━━━━━━━━━━━━━━━
+
+عدد الرسائل قبل التوقف المؤقت:
+            `.trim(), { 
+                chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', 
+                reply_markup: { inline_keyboard: [
+                    [
+                        { text: '5', callback_data: 'b_5' },
+                        { text: '10', callback_data: 'b_10' },
+                        { text: '20', callback_data: 'b_20' }
+                    ],
+                    [
+                        { text: '50', callback_data: 'b_50' },
+                        { text: '100', callback_data: 'b_100' },
+                        { text: '200', callback_data: 'b_200' }
+                    ],
+                    [{ text: 'رجوع', callback_data: 'settings' }]
+                ]}
+            });
         }
 
-        else if (data.startsWith('b_')) {
+        else if (data.startsWith('b_') && !data.startsWith('bc_') && !data.startsWith('bl_')) {
             const size = data.split('_')[1];
-            setSetting('batch_size', size);
-            await bot.editMessageText(`✅ تم تعيين حجم الدفعة: ${size} رسالة`, {
-                chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
-            });
+            if (!isNaN(size)) {
+                setSetting('batch_size', size);
+                await bot.editMessageText(`✅ تم تعيين حجم الدفعة: ${size} رسالة`, {
+                    chat_id: chatId, message_id: msgId, ...KB.backToKeyboard('settings')
+                });
+            }
         }
 
         else if (data === 'set_notify') {
