@@ -240,11 +240,18 @@ bot.on('callback_query', async (q) => {
                 const user = getUser(userId);
                 const accounts = getUserAccounts(userId);
                 await bot.editMessageText(`
-👋 *مرحباً ${firstName}!*
+❝ *مرحباً بك ${firstName}!* ❞
 
-💎 ${user.subscription_type}
-📱 ${accounts.length}/${user.max_accounts} حساب
-📅 ينتهي: ${formatDateShort(user.subscription_end)}
+━━━━━━━━━━━━━━━━━━━━━
+📊 *معلومات حسابك:*
+━━━━━━━━━━━━━━━━━━━━━
+💎 الباقة ← *${user.subscription_type}*
+📱 الحسابات ← *${onlineAccounts}🟢 / ${accounts.length} متصل*
+📅 ينتهي في ← *${formatDateShort(user.subscription_end)}*
+⏳ المتبقي ← *${remaining}*
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 *اختر من القائمة أدناه للبدء*
                 `.trim(), { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown', ...KB.mainUserKeyboard });
             } else {
                 await bot.editMessageText(`👋 *${firstName}!*\n\n🚀 *${CONFIG.BOT_NAME}*`, {
